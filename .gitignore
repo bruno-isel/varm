@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+
+# IDE
+.DS_Store
+
+# Project specific
+*.npz
+.pytest_cache/
+.coverage
