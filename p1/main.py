@@ -5,9 +5,11 @@ Student: Bruno Rodrigues, nº 52323
 
 Pipeline
 --------
-1. Face Detection   – OpenCV Haar Cascade (frontalface_default.xml)
-2. Face Recognition – PCA / Eigenfaces (implemented with NumPy, no extra libs)
-3. AR Overlay       – Virtual glasses drawn on each detected face
+1. Face Detection     – OpenCV Haar Cascade (frontalface_default.xml)
+2. Face Normalization – MPEG-7: eye alignment, rotation, scaling, crop to 56×46
+3. Face Recognition   – PCA / Eigenfaces (implemented with NumPy, no extra libs)
+4. AR Overlay         – Virtual glasses drawn on each detected face
+5. Validation         – Test set evaluation with accuracy metrics
 
 Usage
 -----
@@ -86,8 +88,125 @@ def detect_eyes(face_gray: np.ndarray):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2 ▸ Face Recognition  (PCA / Eigenfaces)
+# 2 ▸ Face Normalization (MPEG-7) & Recognition (PCA / Eigenfaces)
 # ─────────────────────────────────────────────────────────────────────────────
+
+MPEG7_SIZE    = (46, 56)   # width=46, height=56 (MPEG-7 spec)
+EYE_ROW       = 24         # eyes at row 24
+EYE_LEFT_COL  = 16         # left eye at column 16
+EYE_RIGHT_COL = 31         # right eye at column 31
+
+
+def normalize_face_mpeg7(face_gray: np.ndarray) -> np.ndarray:
+    """
+    MPEG-7 face normalization: align eyes horizontally, crop, resize to 56×46.
+
+    Steps:
+    1. Detect both eyes
+    2. Calculate rotation angle to align eyes horizontally
+    3. Rotate the face
+    4. Crop and resize to MPEG-7 dimensions (56×46)
+    5. Position eyes at (EYE_ROW, EYE_LEFT_COL) and (EYE_ROW, EYE_RIGHT_COL)
+
+    Returns
+    -------
+    normalized : np.ndarray
+        Grayscale face image 56×46 with aligned eyes
+    """
+    face = face_gray.copy()
+    eyes = detect_eyes(face)
+
+    # If we can detect 2+ eyes, align them; otherwise fall back to simple resize
+    if len(eyes) >= 2:
+        # Get the two largest eyes
+        eyes_sorted = sorted(eyes, key=lambda e: e[2] * e[3], reverse=True)[:2]
+        eyes_sorted = sorted(eyes_sorted, key=lambda e: e[0])  # sort by x-coordinate
+
+        ex1, ey1, ew1, eh1 = eyes_sorted[0]  # left eye
+        ex2, ey2, ew2, eh2 = eyes_sorted[1]  # right eye
+
+        # Eye centers
+        c1x, c1y = ex1 + ew1 // 2, ey1 + eh1 // 2
+        c2x, c2y = ex2 + ew2 // 2, ey2 + eh2 // 2
+
+        # Calculate rotation angle to align eyes horizontally
+        dy = c2y - c1y
+        dx = c2x - c1x
+        angle = np.arctan2(dy, dx) * 180 / np.pi
+
+        # Rotate face
+        h, w = face.shape
+        center = (w // 2, h // 2)
+        rot_matrix = cv2.getRotationMatrix2D(center, angle, scale=1.0)
+        face_rot = cv2.warpAffine(face, rot_matrix, (w, h), borderValue=0)
+
+        # Re-detect eyes in rotated image
+        eyes_rot = detect_eyes(face_rot)
+        if len(eyes_rot) >= 2:
+            eyes_rot_sorted = sorted(eyes_rot, key=lambda e: e[2] * e[3], reverse=True)[:2]
+            eyes_rot_sorted = sorted(eyes_rot_sorted, key=lambda e: e[0])
+
+            ex1_r, ey1_r, ew1_r, eh1_r = eyes_rot_sorted[0]
+            ex2_r, ey2_r, ew2_r, eh2_r = eyes_rot_sorted[1]
+            c1x_r, c1y_r = ex1_r + ew1_r // 2, ey1_r + eh1_r // 2
+            c2x_r, c2y_r = ex2_r + ew2_r // 2, ey2_r + eh2_r // 2
+
+            # Calculate scale: desired eye distance vs actual
+            eye_dist_desired = EYE_RIGHT_COL - EYE_LEFT_COL
+            eye_dist_actual = c2x_r - c1x_r
+            scale = eye_dist_desired / (eye_dist_actual + 1e-6)
+
+            # Apply scaling
+            scale_matrix = cv2.getRotationMatrix2D(center, 0, scale)
+            face_scaled = cv2.warpAffine(face_rot, scale_matrix, (w, h), borderValue=0)
+
+            # Re-detect eyes in scaled image to get final positions
+            eyes_scaled = detect_eyes(face_scaled)
+            if len(eyes_scaled) >= 2:
+                eyes_scaled_sorted = sorted(eyes_scaled, key=lambda e: e[2] * e[3], reverse=True)[:2]
+                eyes_scaled_sorted = sorted(eyes_scaled_sorted, key=lambda e: e[0])
+
+                ex1_s, ey1_s, ew1_s, eh1_s = eyes_scaled_sorted[0]
+                ex2_s, ey2_s, ew2_s, eh2_s = eyes_scaled_sorted[1]
+                c1x_s, c1y_s = ex1_s + ew1_s // 2, ey1_s + eh1_s // 2
+                c2x_s, c2y_s = ex2_s + ew2_s // 2, ey2_s + eh2_s // 2
+
+                # Calculate crop region centered on eyes
+                eye_center_x = (c1x_s + c2x_s) // 2
+                eye_center_y = (c1y_s + c2y_s) // 2
+
+                # Position eyes at target row; calculate crop boundaries
+                crop_top = max(0, eye_center_y - EYE_ROW)
+                crop_bottom = crop_top + MPEG7_SIZE[1]
+                crop_left = max(0, eye_center_x - (EYE_LEFT_COL + EYE_RIGHT_COL) // 2)
+                crop_right = crop_left + MPEG7_SIZE[0]
+
+                # Adjust if crop exceeds image boundaries
+                if crop_bottom > h:
+                    crop_bottom = h
+                    crop_top = max(0, crop_bottom - MPEG7_SIZE[1])
+                if crop_right > w:
+                    crop_right = w
+                    crop_left = max(0, crop_right - MPEG7_SIZE[0])
+
+                face_crop = face_scaled[crop_top:crop_bottom, crop_left:crop_right]
+
+                # Resize to final MPEG-7 size
+                if face_crop.size > 0:
+                    face_norm = cv2.resize(face_crop, MPEG7_SIZE)
+                else:
+                    face_norm = cv2.resize(face_scaled, MPEG7_SIZE)
+            else:
+                face_norm = cv2.resize(face_scaled, MPEG7_SIZE)
+        else:
+            face_norm = cv2.resize(face_rot, MPEG7_SIZE)
+    else:
+        # Fallback: simple resize
+        face_norm = cv2.resize(face, MPEG7_SIZE)
+
+    # Histogram equalization for better contrast
+    face_norm = cv2.equalizeHist(face_norm)
+    return face_norm
 
 class EigenfaceRecogniser:
     """
@@ -118,10 +237,17 @@ class EigenfaceRecogniser:
 
     @staticmethod
     def _preprocess(face_gray: np.ndarray) -> np.ndarray:
-        """Resize, equalise histogram, flatten and normalise to [0,1]."""
-        face = cv2.resize(face_gray, FACE_SIZE)
-        face = cv2.equalizeHist(face)
-        return face.astype(np.float64).flatten()
+        """
+        MPEG-7 normalization: align eyes, crop, resize, equalize histogram.
+        Then normalize pixel values to [0, 1] and flatten.
+        """
+        # Normalize face geometry (eye alignment)
+        face_norm = normalize_face_mpeg7(face_gray)
+
+        # Normalize pixel values to [0, 1]
+        face_float = face_norm.astype(np.float64) / 255.0
+
+        return face_float.flatten()
 
     # ── training ─────────────────────────────────────────────────────────
 
