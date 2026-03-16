@@ -35,15 +35,17 @@ import numpy as np
 # Paths
 # ─────────────────────────────────────────────────────────────────────────────
 
-SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
-DATASET_DIR = '/Users/btavr/dev/isel/2oSem/varm/pedroMjorgeDataSet'
-RESULTS_DIR = os.path.join(SCRIPT_DIR, 'results')
-MODEL_DIR   = os.path.join(SCRIPT_DIR, 'model')
-MODEL_PATH  = os.path.join(MODEL_DIR, 'eigenfaces.npz')
-TRAIN_TEST_SPLIT = 0.7  # 70% training, 30% test
+SCRIPT_DIR           = os.path.dirname(os.path.abspath(__file__))
+DATASET_DIR          = '/Users/btavr/dev/isel/2oSem/varm/pedroMjorgeDataSet'
+DATASET_NORMALIZED   = os.path.join(SCRIPT_DIR, 'dataset_normalized')
+RESULTS_DIR          = os.path.join(SCRIPT_DIR, 'results')
+MODEL_DIR            = os.path.join(SCRIPT_DIR, 'model')
+MODEL_PATH           = os.path.join(MODEL_DIR, 'eigenfaces.npz')
+TRAIN_TEST_SPLIT     = 0.7  # 70% training, 30% test
 
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR,   exist_ok=True)
+os.makedirs(DATASET_NORMALIZED, exist_ok=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -238,8 +240,8 @@ class EigenfaceRecogniser:
     @staticmethod
     def _preprocess(face_gray: np.ndarray) -> np.ndarray:
         """
-        MPEG-7 normalization: align eyes, crop, resize, equalize histogram.
-        Then normalize pixel values to [0, 1] and flatten.
+        For raw images: MPEG-7 normalization + pixel [0,1] normalization + flatten.
+        (Used during inference/predict on new images)
         """
         # Normalize face geometry (eye alignment)
         face_norm = normalize_face_mpeg7(face_gray)
@@ -251,14 +253,16 @@ class EigenfaceRecogniser:
 
     # ── training ─────────────────────────────────────────────────────────
 
-    def train(self, faces_gray, labels):
+    def train(self, faces_preprocessed, labels):
         """
+        Train PCA model on already-preprocessed face data.
+
         Parameters
         ----------
-        faces_gray : list of np.ndarray  – grayscale face crops (any size)
-        labels     : list of int
+        faces_preprocessed : list of np.ndarray  – flattened, normalized faces (already processed)
+        labels             : list of int
         """
-        X = np.stack([self._preprocess(f) for f in faces_gray])  # (N, D)
+        X = np.stack(faces_preprocessed)  # (N, D)
         self.mean_face = X.mean(axis=0)
         X_centred = X - self.mean_face
 
@@ -309,72 +313,148 @@ class EigenfaceRecogniser:
 
 # ── dataset helpers ──────────────────────────────────────────────────────────
 
-def split_dataset(dataset_dir: str, train_ratio: float = TRAIN_TEST_SPLIT, seed: int = 42):
+def normalize_and_save_dataset(raw_dataset_dir: str, output_dir: str):
     """
-    Split image files into training and test sets.
+    Normalize all faces in raw dataset using MPEG-7 and save to disk as JPG.
+
+    This creates a normalized dataset that can be reused for different algorithms.
+    Saves as JPG to allow visual inspection of normalization results.
+
+    Parameters
+    ----------
+    raw_dataset_dir : str
+        Path to directory with raw face images
+    output_dir : str
+        Path to save normalized faces (JPG files)
 
     Returns
     -------
-    train_files : list[str]
-    test_files  : list[str]
+    normalized_files : list[str]
+        List of saved normalized face filenames (without extension)
     """
-    np.random.seed(seed)
     img_files = sorted([
-        f for f in os.listdir(dataset_dir)
+        f for f in os.listdir(raw_dataset_dir)
         if f.lower().endswith(('.jpg', '.jpeg', '.png'))
     ])
-    n_train = int(len(img_files) * train_ratio)
-    indices = np.random.permutation(len(img_files))
-    train_indices = indices[:n_train]
-    test_indices = indices[n_train:]
-    return [img_files[i] for i in train_indices], [img_files[i] for i in test_indices]
 
+    print(f"\n[Normalization] Processing {len(img_files)} images from {raw_dataset_dir}")
 
-def build_dataset(dataset_dir: str, file_list):
-    """
-    Build face data from a list of files.
-
-    Returns
-    -------
-    faces  : list[np.ndarray]
-    labels : list[int]
-    """
-    faces, labels = [], []
-    for fname in file_list:
-        img = cv2.imread(os.path.join(dataset_dir, fname))
+    normalized_files = []
+    for fname in img_files:
+        img = cv2.imread(os.path.join(raw_dataset_dir, fname))
         if img is None:
             print(f"  ⚠  Cannot read {fname}")
             continue
+
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # Detect face and extract
         detections = detect_faces(gray)
         if not detections:
             print(f"  ⚠  No face found in {fname}")
             continue
+
         x, y, w, h = max(detections, key=lambda r: r[2] * r[3])
-        faces.append(gray[y:y+h, x:x+w])
-        labels.append(KNOWN_LABEL)
-        print(f"  ✓  {fname}  →  {w}×{h} face at ({x},{y})")
+        face_crop = gray[y:y+h, x:x+w]
+
+        # Normalize using MPEG-7
+        face_norm = normalize_face_mpeg7(face_crop)
+
+        # Save as JPG (allows visual inspection)
+        name_no_ext = fname.rsplit('.', 1)[0]
+        save_path = os.path.join(output_dir, f"{name_no_ext}.jpg")
+        cv2.imwrite(save_path, face_norm)
+        normalized_files.append(name_no_ext)
+
+        print(f"  ✓  {fname:30s}  →  {name_no_ext}.jpg  {face_norm.shape}")
+
+    print(f"\n[Normalization] Saved {len(normalized_files)} normalized faces to {output_dir}")
+    return normalized_files
+
+
+def split_dataset(dataset_dir: str, train_ratio: float = TRAIN_TEST_SPLIT, seed: int = 42):
+    """
+    Split normalized dataset (JPG images) into training and test sets.
+
+    Returns
+    -------
+    train_files : list[str]  (filenames without extension)
+    test_files  : list[str]  (filenames without extension)
+    """
+    np.random.seed(seed)
+    jpg_files = sorted([
+        f[:-4]  # remove .jpg extension
+        for f in os.listdir(dataset_dir)
+        if f.lower().endswith('.jpg')
+    ])
+    n_train = int(len(jpg_files) * train_ratio)
+    indices = np.random.permutation(len(jpg_files))
+    train_indices = indices[:n_train]
+    test_indices = indices[n_train:]
+    return [jpg_files[i] for i in train_indices], [jpg_files[i] for i in test_indices]
+
+
+def build_dataset(normalized_dataset_dir: str, file_list):
+    """
+    Load pre-normalized face data from JPG files.
+
+    Parameters
+    ----------
+    normalized_dataset_dir : str
+        Path to directory containing normalized JPG files
+    file_list : list[str]
+        List of filenames (without .jpg extension)
+
+    Returns
+    -------
+    faces  : list[np.ndarray]  (shape: (56*46,) flattened, normalized to [0,1])
+    labels : list[int]
+    """
+    faces, labels = [], []
+    for fname in file_list:
+        jpg_path = os.path.join(normalized_dataset_dir, f"{fname}.jpg")
+        try:
+            face_norm = cv2.imread(jpg_path, cv2.IMREAD_GRAYSCALE)
+            if face_norm is None:
+                print(f"  ⚠  Cannot read {fname}.jpg")
+                continue
+            # Normalize pixel values to [0, 1] and flatten
+            face_float = face_norm.astype(np.float64) / 255.0
+            faces.append(face_float.flatten())
+            labels.append(KNOWN_LABEL)
+            print(f"  ✓  {fname}.jpg  loaded")
+        except Exception as e:
+            print(f"  ⚠  Error loading {fname}.jpg: {e}")
+            continue
     return faces, labels
 
 
-def load_or_train(dataset_dir: str, force: bool = False):
+def load_or_train(raw_dataset_dir: str, force: bool = False):
     rec = EigenfaceRecogniser(n_components=N_COMPONENTS)
     if os.path.exists(MODEL_PATH) and not force:
         rec.load(MODEL_PATH)
     else:
-        train_files, test_files = split_dataset(dataset_dir)
+        # Step 1: Normalize raw dataset if not already done
+        jpg_count = len([f for f in os.listdir(DATASET_NORMALIZED) if f.endswith('.jpg')])
+        if jpg_count == 0:
+            normalize_and_save_dataset(raw_dataset_dir, DATASET_NORMALIZED)
+
+        # Step 2: Split normalized dataset
+        train_files, test_files = split_dataset(DATASET_NORMALIZED)
         print(f"\n[Dataset Split] {len(train_files)} train, {len(test_files)} test")
 
-        print(f"\n[Training] Building training data…")
-        faces_train, labels_train = build_dataset(dataset_dir, train_files)
+        # Step 3: Load training data
+        print(f"\n[Training] Loading normalized training data…")
+        faces_train, labels_train = build_dataset(DATASET_NORMALIZED, train_files)
         if not faces_train:
-            raise RuntimeError("No training faces — check DATASET_DIR.")
+            raise RuntimeError("No training faces — check normalized dataset.")
 
         rec.train(faces_train, labels_train)
         rec.save(MODEL_PATH)
 
+        # Step 4: Validate on test set
         print(f"\n[Validation] Testing on test set…")
-        faces_test, labels_test = build_dataset(dataset_dir, test_files)
+        faces_test, labels_test = build_dataset(DATASET_NORMALIZED, test_files)
         if faces_test:
             evaluate_model(rec, faces_test, labels_test, test_files)
 
@@ -382,12 +462,20 @@ def load_or_train(dataset_dir: str, force: bool = False):
 
 
 def evaluate_model(rec: EigenfaceRecogniser, faces_test, labels_test, test_files):
-    """Evaluate model on test set."""
+    """Evaluate model on test set (pre-normalized data)."""
     correct = 0
     total = len(faces_test)
 
-    for i, face in enumerate(faces_test):
-        label, dist = rec.predict(face)
+    for i, face_vec in enumerate(faces_test):
+        # face_vec is already flattened and normalized (from build_dataset)
+        # Directly use it for prediction without calling _preprocess()
+        vec = face_vec - rec.mean_face  # center with mean face from training
+        proj = vec @ rec.eigenfaces.T                        # (k,)
+        dists = np.linalg.norm(rec.projections - proj, axis=1)
+        idx = int(np.argmin(dists))
+        label = int(rec.labels[idx])
+        dist = float(dists[idx])
+
         is_correct = (label == labels_test[i]) and (dist < DIST_THRESHOLD)
         status = "✓" if is_correct else "✗"
         correct += is_correct
