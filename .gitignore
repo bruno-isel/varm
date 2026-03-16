@@ -5,6 +5,5 @@ __pycache__/
 .DS_Store
 
 # Project specific
-*.npz
 .pytest_cache/
 .coverage
