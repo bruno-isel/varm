@@ -34,13 +34,11 @@ import numpy as np
 # ─────────────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
-DATASET_DIR = (
-    '/sessions/confident-wizardly-hawking/mnt/'
-    'ISEL--2oSem/VARM/project1/pedroMjorgeDataSet'
-)
+DATASET_DIR = '/Users/btavr/dev/isel/2oSem/varm/pedroMjorgeDataSet'
 RESULTS_DIR = os.path.join(SCRIPT_DIR, 'results')
 MODEL_DIR   = os.path.join(SCRIPT_DIR, 'model')
 MODEL_PATH  = os.path.join(MODEL_DIR, 'eigenfaces.npz')
+TRAIN_TEST_SPLIT = 0.7  # 70% training, 30% test
 
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR,   exist_ok=True)
@@ -185,14 +183,38 @@ class EigenfaceRecogniser:
 
 # ── dataset helpers ──────────────────────────────────────────────────────────
 
-def build_training_data(dataset_dir: str):
+def split_dataset(dataset_dir: str, train_ratio: float = TRAIN_TEST_SPLIT, seed: int = 42):
+    """
+    Split image files into training and test sets.
+
+    Returns
+    -------
+    train_files : list[str]
+    test_files  : list[str]
+    """
+    np.random.seed(seed)
     img_files = sorted([
         f for f in os.listdir(dataset_dir)
         if f.lower().endswith(('.jpg', '.jpeg', '.png'))
     ])
-    print(f"\n[Training] {len(img_files)} images in {dataset_dir}")
+    n_train = int(len(img_files) * train_ratio)
+    indices = np.random.permutation(len(img_files))
+    train_indices = indices[:n_train]
+    test_indices = indices[n_train:]
+    return [img_files[i] for i in train_indices], [img_files[i] for i in test_indices]
+
+
+def build_dataset(dataset_dir: str, file_list):
+    """
+    Build face data from a list of files.
+
+    Returns
+    -------
+    faces  : list[np.ndarray]
+    labels : list[int]
+    """
     faces, labels = [], []
-    for fname in img_files:
+    for fname in file_list:
         img = cv2.imread(os.path.join(dataset_dir, fname))
         if img is None:
             print(f"  ⚠  Cannot read {fname}")
@@ -214,12 +236,42 @@ def load_or_train(dataset_dir: str, force: bool = False):
     if os.path.exists(MODEL_PATH) and not force:
         rec.load(MODEL_PATH)
     else:
-        faces, labels = build_training_data(dataset_dir)
-        if not faces:
+        train_files, test_files = split_dataset(dataset_dir)
+        print(f"\n[Dataset Split] {len(train_files)} train, {len(test_files)} test")
+
+        print(f"\n[Training] Building training data…")
+        faces_train, labels_train = build_dataset(dataset_dir, train_files)
+        if not faces_train:
             raise RuntimeError("No training faces — check DATASET_DIR.")
-        rec.train(faces, labels)
+
+        rec.train(faces_train, labels_train)
         rec.save(MODEL_PATH)
+
+        print(f"\n[Validation] Testing on test set…")
+        faces_test, labels_test = build_dataset(dataset_dir, test_files)
+        if faces_test:
+            evaluate_model(rec, faces_test, labels_test, test_files)
+
     return rec
+
+
+def evaluate_model(rec: EigenfaceRecogniser, faces_test, labels_test, test_files):
+    """Evaluate model on test set."""
+    correct = 0
+    total = len(faces_test)
+
+    for i, face in enumerate(faces_test):
+        label, dist = rec.predict(face)
+        is_correct = (label == labels_test[i]) and (dist < DIST_THRESHOLD)
+        status = "✓" if is_correct else "✗"
+        correct += is_correct
+
+        fname = test_files[i] if i < len(test_files) else "unknown"
+        name = KNOWN_NAME if dist < DIST_THRESHOLD else UNKNOWN_NAME
+        print(f"  {status}  {fname:30s}  →  {name:15s}  dist={dist:.0f}")
+
+    accuracy = (correct / total * 100) if total > 0 else 0
+    print(f"\n[Accuracy] {correct}/{total} = {accuracy:.1f}%")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
