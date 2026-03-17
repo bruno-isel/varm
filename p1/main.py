@@ -5,13 +5,16 @@ from recognizer import FaceRecognizer
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--image', type=str, help='Caminho para uma imagem a reconhecer')
+    parser.add_argument('--live', action='store_true', help='Modo webcam em tempo real')
     args = parser.parse_args()
 
     recognizer = FaceRecognizer('dataset/train')
     recognizer.load_dataset()
     recognizer.train()
 
-    if args.image:
+    if args.live:
+        recognizer.live()
+    elif args.image:
         img = cv2.imread(args.image)
         if img is None:
             print(f"Erro: não foi possível abrir '{args.image}'")

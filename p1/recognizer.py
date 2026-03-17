@@ -91,3 +91,36 @@ class FaceRecognizer:
         accuracy = 100 * correct / total if total > 0 else 0
         print(f"\nAccuracy: {correct}/{total} ({accuracy:.1f}%)")
         return accuracy
+
+    def live(self):
+        cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            print("Erro: não foi possível abrir a webcam.")
+            return
+        print("A iniciar webcam... pressiona 'q' para sair.")
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5)
+
+            for x, y, w, h in faces:
+                face_img = gray[y:y + h, x:x + w]
+                label, confidence = self.model.predict(face_img)
+                name = self.person_names[label]
+
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                cv2.putText(frame, f"{name} ({confidence:.0f})", (x, y - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+            cv2.imshow("Face Recognizer", frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+        cap.release()
+        cv2.destroyAllWindows()
