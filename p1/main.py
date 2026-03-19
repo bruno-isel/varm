@@ -2,13 +2,18 @@ import argparse
 import cv2
 from recognizer import FaceRecognizer
 
+
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, default='dataset', help='Pasta do dataset (ex: dataset, dataset_normalized)')
     parser.add_argument('--image', type=str, help='Caminho para uma imagem a reconhecer')
     parser.add_argument('--live', action='store_true', help='Modo webcam em tempo real')
     args = parser.parse_args()
 
-    recognizer = FaceRecognizer('dataset/train')
+    train_path = f'{args.dataset}/train'
+    test_path = f'{args.dataset}/test'
+
+    recognizer = FaceRecognizer(train_path)
     recognizer.load_dataset()
     recognizer.train()
 
@@ -25,7 +30,8 @@ def main():
         else:
             print(f"Pessoa reconhecida: {name} (confiança: {confidence:.1f})")
     else:
-        recognizer.evaluate('dataset/test')
+        recognizer.evaluate(test_path)
+
 
 if __name__ == '__main__':
     main()
