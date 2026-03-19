@@ -8,3 +8,7 @@ varm/
 # Project specific
 .pytest_cache/
 .coverage
+
+# datasets
+p1/*Dataset*/
+p1/*dataset*/
