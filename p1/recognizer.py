@@ -4,6 +4,8 @@ import numpy as np
 
 
 class FaceRecognizer:
+    UNKNOWN_THRESHOLD = 100
+
     def __init__(self, train_path):
         self.train_path = train_path
         self.face_cascade = cv2.CascadeClassifier(
@@ -16,10 +18,11 @@ class FaceRecognizer:
     def load_dataset(self):
         self.face_list = []
         self.class_list = []
-        self.person_names = os.listdir(self.train_path)
+        self.person_names = ['Angelina Jolie', 'Bruno Rodrigues', 'Meda', 'Pedro M Jorge']
 
         for idx, name in enumerate(self.person_names):
             full_path = os.path.join(self.train_path, name)
+            faces_found = 0
 
             for img_name in os.listdir(full_path):
                 img_path = os.path.join(full_path, img_name)
@@ -35,10 +38,13 @@ class FaceRecognizer:
                 if len(detected_faces) < 1:
                     continue
 
-                for x, y, w, h in detected_faces:
-                    face_img = img[y:y + h, x:x + w]
-                    self.face_list.append(face_img)
-                    self.class_list.append(idx)
+                x, y, w, h = max(detected_faces, key=lambda f: f[2] * f[3])
+                face_img = img[y:y + h, x:x + w]
+                self.face_list.append(face_img)
+                self.class_list.append(idx)
+                faces_found += 1
+
+            print(f"  {name}: {faces_found} faces carregadas")
 
     def get_faces(self):
         return self.face_list, self.class_list
@@ -66,7 +72,7 @@ class FaceRecognizer:
         face_img = gray[y:y + h, x:x + w]
 
         label, confidence = self.model.predict(face_img)
-        name = self.person_names[label]
+        name = self.person_names[label] if confidence < self.UNKNOWN_THRESHOLD else "Desconhecido"
         return name, confidence
 
     def evaluate(self, test_path):
@@ -93,9 +99,9 @@ class FaceRecognizer:
         return accuracy
 
     def live(self):
-        cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
+        cap = cv2.VideoCapture(1, cv2.CAP_AVFOUNDATION)
         if not cap.isOpened():
-            cap = cv2.VideoCapture(0)
+            cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
         if not cap.isOpened():
             print("Erro: não foi possível abrir a webcam.")
             return
@@ -112,7 +118,7 @@ class FaceRecognizer:
             for x, y, w, h in faces:
                 face_img = gray[y:y + h, x:x + w]
                 label, confidence = self.model.predict(face_img)
-                name = self.person_names[label]
+                name = self.person_names[label] if confidence < self.UNKNOWN_THRESHOLD else "Desconhecido"
 
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
                 cv2.putText(frame, f"{name} ({confidence:.0f})", (x, y - 10),
