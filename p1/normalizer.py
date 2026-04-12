@@ -32,30 +32,39 @@ class FaceNormalizer:
         fx, fy, fw, fh = face_rect
         # Procurar olhos nos 65% superiores da face
         upper_region = gray[fy:fy + int(fh * 0.65), fx:fx + fw]
+        # Equalizar histograma para melhorar contraste
+        upper_region = cv2.equalizeHist(upper_region)
 
         # Tentar com o cascade normal primeiro, depois com óculos
+        # Relaxar progressivamente: minNeighbors, scaleFactor, minSize
         for cascade in [self.eye_cascade, self.eye_cascade_glasses]:
-            for min_neighbors in [5, 3, 2]:
+            for scale, min_neighbors, min_size in [
+                (1.05, 5, 15), (1.05, 3, 15), (1.05, 2, 15),
+                (1.03, 2, 10), (1.03, 1, 10)
+            ]:
                 eyes = cascade.detectMultiScale(
-                    upper_region, scaleFactor=1.05, minNeighbors=min_neighbors, minSize=(15, 15)
+                    upper_region, scaleFactor=scale, minNeighbors=min_neighbors, minSize=(min_size, min_size)
                 )
                 if len(eyes) >= 2:
                     break
             if len(eyes) >= 2:
                 break
 
-        if len(eyes) < 2:
-            return None, None
+        if len(eyes) >= 2:
+            # Ordenar por tamanho e pegar os 2 maiores
+            eyes = sorted(eyes, key=lambda e: e[2] * e[3], reverse=True)[:2]
 
-        # Ordenar por tamanho e pegar os 2 maiores
-        eyes = sorted(eyes, key=lambda e: e[2] * e[3], reverse=True)[:2]
+            # Centro de cada olho em coordenadas ABSOLUTAS da imagem original
+            centers = [(fx + ex + ew // 2, fy + ey + eh // 2) for ex, ey, ew, eh in eyes]
 
-        # Centro de cada olho em coordenadas ABSOLUTAS da imagem original
-        centers = [(fx + ex + ew // 2, fy + ey + eh // 2) for ex, ey, ew, eh in eyes]
+            # Ordenar: olho esquerdo (menor x) e olho direito (maior x)
+            centers.sort(key=lambda c: c[0])
+            return centers[0], centers[1]
 
-        # Ordenar: olho esquerdo (menor x) e olho direito (maior x)
-        centers.sort(key=lambda c: c[0])
-        return centers[0], centers[1]
+        # Fallback: estimar posição dos olhos a partir da geometria da face
+        left_eye = (fx + int(fw * 0.3), fy + int(fh * 0.35))
+        right_eye = (fx + int(fw * 0.7), fy + int(fh * 0.35))
+        return left_eye, right_eye
 
     def align_face(self, face_img, left_eye, right_eye):
         # Diferença entre os olhos
@@ -112,10 +121,17 @@ class FaceNormalizer:
         crop_x = left_x - self.LEFT_EYE_POS[0]
         crop_y = left_y - self.LEFT_EYE_POS[1]
 
-        # Garantir que o crop não sai dos limites
+        # Adicionar padding se o crop sair dos limites
         out_w, out_h = self.OUTPUT_SIZE
-        if crop_x < 0 or crop_y < 0 or crop_x + out_w > new_w or crop_y + out_h > new_h:
-            return None
+        pad_left = max(0, -crop_x)
+        pad_top = max(0, -crop_y)
+        pad_right = max(0, (crop_x + out_w) - new_w)
+        pad_bottom = max(0, (crop_y + out_h) - new_h)
+
+        if pad_left > 0 or pad_top > 0 or pad_right > 0 or pad_bottom > 0:
+            scaled = cv2.copyMakeBorder(scaled, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_REPLICATE)
+            crop_x += pad_left
+            crop_y += pad_top
 
         return scaled[crop_y:crop_y + out_h, crop_x:crop_x + out_w]
 

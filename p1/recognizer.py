@@ -4,21 +4,51 @@ import numpy as np
 
 
 class FaceRecognizer:
-    UNKNOWN_THRESHOLD = 100
+    UNKNOWN_THRESHOLD = 200
 
-    def __init__(self, train_path):
+    def __init__(self, train_path, normalized=False):
         self.train_path = train_path
+        self.normalized = normalized
         self.face_cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        )
+        self.eye_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + 'haarcascade_eye.xml'
         )
         self.face_list = []
         self.class_list = []
         self.person_names = []
+        self.glasses = cv2.imread('glasses.png', cv2.IMREAD_UNCHANGED)
+        self.hat = cv2.imread('hat.png', cv2.IMREAD_UNCHANGED)
+
+    def overlay(self, frame, overlay_img, x, y, w, h):
+        if overlay_img is None or w <= 0 or h <= 0:
+            return
+        resized = cv2.resize(overlay_img, (w, h))
+
+        fh, fw = frame.shape[:2]
+        x1, y1 = max(x, 0), max(y, 0)
+        x2, y2 = min(x + w, fw), min(y + h, fh)
+        if x1 >= x2 or y1 >= y2:
+            return
+
+        ox1, oy1 = x1 - x, y1 - y
+        ox2, oy2 = ox1 + (x2 - x1), oy1 + (y2 - y1)
+        roi = resized[oy1:oy2, ox1:ox2]
+
+        if roi.shape[2] == 4:
+            alpha = roi[:, :, 3] / 255.0
+            for c in range(3):
+                frame[y1:y2, x1:x2, c] = (
+                    alpha * roi[:, :, c] + (1 - alpha) * frame[y1:y2, x1:x2, c]
+                )
+        else:
+            frame[y1:y2, x1:x2] = roi
 
     def load_dataset(self):
         self.face_list = []
         self.class_list = []
-        self.person_names = ['Angelina Jolie', 'Bruno Rodrigues', 'Meda', 'Pedro M Jorge']
+        self.person_names = ['Bruno Rodrigues', 'Meda', 'Pedro M Jorge']
 
         for idx, name in enumerate(self.person_names):
             full_path = os.path.join(self.train_path, name)
@@ -31,18 +61,23 @@ class FaceRecognizer:
                 if img is None:
                     continue
 
-                detected_faces = self.face_cascade.detectMultiScale(
-                    img, scaleFactor=1.2, minNeighbors=5
-                )
+                if self.normalized:
+                    self.face_list.append(img)
+                    self.class_list.append(idx)
+                    faces_found += 1
+                else:
+                    detected_faces = self.face_cascade.detectMultiScale(
+                        img, scaleFactor=1.2, minNeighbors=5
+                    )
 
-                if len(detected_faces) < 1:
-                    continue
+                    if len(detected_faces) < 1:
+                        continue
 
-                x, y, w, h = max(detected_faces, key=lambda f: f[2] * f[3])
-                face_img = img[y:y + h, x:x + w]
-                self.face_list.append(face_img)
-                self.class_list.append(idx)
-                faces_found += 1
+                    x, y, w, h = max(detected_faces, key=lambda f: f[2] * f[3])
+                    face_img = img[y:y + h, x:x + w]
+                    self.face_list.append(face_img)
+                    self.class_list.append(idx)
+                    faces_found += 1
 
             print(f"  {name}: {faces_found} faces carregadas")
 
@@ -64,12 +99,14 @@ class FaceRecognizer:
     def predict(self, img):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
 
-        detected_faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5)
-        if len(detected_faces) < 1:
-            return None, None
-
-        x, y, w, h = detected_faces[0]
-        face_img = gray[y:y + h, x:x + w]
+        if self.normalized:
+            face_img = gray
+        else:
+            detected_faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5)
+            if len(detected_faces) < 1:
+                return None, None
+            x, y, w, h = detected_faces[0]
+            face_img = gray[y:y + h, x:x + w]
 
         label, confidence = self.model.predict(face_img)
         name = self.person_names[label] if confidence < self.UNKNOWN_THRESHOLD else "Desconhecido"
@@ -123,6 +160,17 @@ class FaceRecognizer:
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
                 cv2.putText(frame, f"{name} ({confidence:.0f})", (x, y - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+                if name == 'Bruno Rodrigues':
+                    gw, gh = w, int(h * 0.35)
+                    gy = y + int(h * 0.25)
+                    self.overlay(frame, self.glasses, x, gy, gw, gh)
+                elif name == 'Meda':
+                    hw = int(w * 1.4)
+                    hh = int(h * 0.9)
+                    hx = x - (hw - w) // 2
+                    hy = y - int(h * 0.85)
+                    self.overlay(frame, self.hat, hx, hy, hw, hh)
 
             cv2.imshow("Face Recognizer", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):

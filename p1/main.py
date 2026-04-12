@@ -5,7 +5,7 @@ from recognizer import FaceRecognizer
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='dataset', help='Pasta do dataset (ex: dataset, dataset_normalized)')
+    parser.add_argument('--dataset', type=str, default='dataset_normalized', help='Pasta do dataset (ex: dataset, dataset_normalized)')
     parser.add_argument('--image', type=str, help='Caminho para uma imagem a reconhecer')
     parser.add_argument('--live', action='store_true', help='Modo webcam em tempo real')
     args = parser.parse_args()
@@ -13,7 +13,7 @@ def main():
     train_path = f'{args.dataset}/train'
     test_path = f'{args.dataset}/test'
 
-    recognizer = FaceRecognizer(train_path)
+    recognizer = FaceRecognizer(train_path, normalized=True)
     recognizer.load_dataset()
     recognizer.train()
 
