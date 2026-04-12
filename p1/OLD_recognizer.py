@@ -4,7 +4,7 @@ import numpy as np
 
 
 class FaceRecognizer:
-    UNKNOWN_THRESHOLD = 200
+    UNKNOWN_THRESHOLD = 162
 
     def __init__(self, train_path, normalized=False):
         self.train_path = train_path
@@ -20,6 +20,7 @@ class FaceRecognizer:
         self.person_names = []
         self.glasses = cv2.imread('glasses.png', cv2.IMREAD_UNCHANGED)
         self.hat = cv2.imread('hat.png', cv2.IMREAD_UNCHANGED)
+        self.unknown_mask = cv2.imread('???.png', cv2.IMREAD_UNCHANGED)
 
     def overlay(self, frame, overlay_img, x, y, w, h):
         if overlay_img is None or w <= 0 or h <= 0:
@@ -48,7 +49,7 @@ class FaceRecognizer:
     def load_dataset(self):
         self.face_list = []
         self.class_list = []
-        self.person_names = ['Bruno Rodrigues', 'Meda', 'Pedro M Jorge']
+        self.person_names = ['Bruno Rodrigues', 'Pedro M Jorge']
 
         for idx, name in enumerate(self.person_names):
             full_path = os.path.join(self.train_path, name)
@@ -165,12 +166,18 @@ class FaceRecognizer:
                     gw, gh = w, int(h * 0.35)
                     gy = y + int(h * 0.25)
                     self.overlay(frame, self.glasses, x, gy, gw, gh)
-                elif name == 'Meda':
+                elif name == 'Pedro M Jorge':
                     hw = int(w * 1.4)
                     hh = int(h * 0.9)
                     hx = x - (hw - w) // 2
                     hy = y - int(h * 0.85)
                     self.overlay(frame, self.hat, hx, hy, hw, hh)
+                elif name == 'Desconhecido':
+                    uw = int(w * 0.9)
+                    uh = int(h * 0.9)
+                    ux = x + (w - uw) // 2
+                    uy = y - int(h * 0.95)
+                    self.overlay(frame, self.unknown_mask, ux, uy, uw, uh)
 
             cv2.imshow("Face Recognizer", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
