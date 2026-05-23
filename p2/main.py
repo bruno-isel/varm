@@ -20,7 +20,7 @@ import numpy as np
 import cv2
 
 CALIBRATION_FILE = "camera_calibration.npz"
-MARKER_SIZE = 0.05        # metres — measure your printed marker side
+MARKER_SIZE = 5.0         # cm — measure your printed marker side
 ARUCO_DICT = cv2.aruco.DICT_6X6_250
 
 
@@ -34,11 +34,11 @@ def load_calibration():
 
 
 # ---------------------------------------------------------------------------
-# 3D object definitions — vertices in marker coordinate space (metres)
+# 3D object definitions — vertices in marker coordinate space (cm)
 # Origin = marker centre, Z points up from marker surface
 # ---------------------------------------------------------------------------
 
-def _cube_edges(s=0.04):
+def _cube_edges(s=4.0):
     h = s
     v = np.float32([
         [-s/2, -s/2, 0], [s/2, -s/2, 0], [s/2, s/2, 0], [-s/2, s/2, 0],
@@ -52,7 +52,7 @@ def _cube_edges(s=0.04):
     return v, edges
 
 
-def _pyramid_edges(s=0.04):
+def _pyramid_edges(s=4.0):
     h = s * 1.5
     v = np.float32([
         [-s/2, -s/2, 0], [s/2, -s/2, 0], [s/2, s/2, 0], [-s/2, s/2, 0],
@@ -131,7 +131,7 @@ def main():
 
                 dist_m = np.linalg.norm(tvec)
                 corner = corners[i][0][0].astype(int)
-                cv2.putText(frame, f"ID:{marker_id}  {dist_m:.2f}m",
+                cv2.putText(frame, f"ID:{marker_id}  {dist_m:.1f}cm",
                             (corner[0], corner[1] - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
 

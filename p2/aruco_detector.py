@@ -15,7 +15,7 @@ import numpy as np
 import cv2
 
 CALIBRATION_FILE = "camera_calibration.npz"
-MARKER_SIZE = 0.05       # metres — measure your printed marker side
+MARKER_SIZE = 5.0        # cm — measure your printed marker side
 ARUCO_DICT = cv2.aruco.DICT_6X6_250
 
 
@@ -62,7 +62,7 @@ def main():
 
                 dist_m = np.linalg.norm(tvec)
                 corner = corners[i][0][0].astype(int)
-                cv2.putText(frame, f"ID:{ids[i][0]}  {dist_m:.2f}m",
+                cv2.putText(frame, f"ID:{ids[i][0]}  {dist_m:.1f}cm",
                             (corner[0], corner[1] - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 

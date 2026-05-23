@@ -16,7 +16,7 @@ import numpy as np
 import cv2
 
 CHESSBOARD = (9, 6)       # inner corners (cols, rows)
-SQUARE_SIZE = 0.025       # metres — measure your printed square size
+SQUARE_SIZE = 2.5         # cm — measure your printed square size
 OUTPUT_FILE = "camera_calibration.npz"
 MIN_FRAMES = 10
 
