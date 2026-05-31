@@ -176,3 +176,30 @@ p2/
 ├── camera_calibration.npz  # gerado após calibrar (não commitar)
 └── README.md
 ```
+
+---
+
+## Problemas encontrados e lições aprendidas
+
+### Deteção ArUco — borda branca obrigatória
+
+Os marcadores impressos não tinham margem branca à volta. O algoritmo de deteção procura a transição preto→branco na borda exterior do marcador para identificar os quadrados negros — sem essa transição, simplesmente não deteta nada (sem erro, sem aviso).
+
+**Solução:** colar o marcador num papel/cartão branco com pelo menos 1–2 cm de margem em todos os lados, ou reimprimir com margem suficiente.
+
+---
+
+### Calibração — a rigidez do tabuleiro é crítica
+
+A calibração exige imagens do tabuleiro em posições, distâncias e ângulos variados. Ao longo do processo testámos três abordagens, com resultados muito diferentes:
+
+**1.ª tentativa — só rotação a 90° face à câmara**
+Manter o tabuleiro sempre perpendicular à câmara e apenas rodar o plano não dá variedade angular suficiente. O algoritmo não consegue estimar bem os parâmetros de distorção radial porque todos os pontos ficam numa zona estreita da imagem. RMS elevado e instável.
+
+**2.ª tentativa — papel sem suporte rígido**
+Tentar vários ângulos com o papel solto faz com que o papel curve ligeiramente. Os cantos do tabuleiro ficam num plano ligeiramente curvo em vez de plano — o `calibrateCamera` assume que Z=0 para todos os pontos, por isso qualquer curvatura do papel introduz erro sistemático. O RMS ficou alto (>9 px em alguns casos).
+
+**3.ª tentativa — tabuleiro colado em superfície rígida (resultado final)**
+Colar o papel numa superfície dura (pasta, cartão espesso) garante que os cantos ficam rigorosamente no mesmo plano. Com 67 frames capturadas em ângulos, distâncias e inclinações variados, obtivemos RMS = 2.41 px — o melhor resultado da sessão.
+
+**Conclusão:** a rigidez do suporte é tão importante quanto a variedade de ângulos. Um tabuleiro que curve mesmo ligeiramente degrada significativamente a calibração.

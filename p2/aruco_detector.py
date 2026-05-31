@@ -8,6 +8,7 @@ Requires camera_calibration.npz (run calibrate.py first).
 
 Controls:
     q — quit
+    d — toggle debug (threshold view)
 """
 
 import sys
@@ -15,7 +16,7 @@ import numpy as np
 import cv2
 
 CALIBRATION_FILE = "camera_calibration.npz"
-MARKER_SIZE = 5.0        # cm — measure your printed marker side
+MARKER_SIZE = 6.0        # cm — measure your printed marker side
 ARUCO_DICT = cv2.aruco.DICT_6X6_250
 
 
@@ -28,19 +29,33 @@ def load_calibration():
         sys.exit(1)
 
 
+def make_detector():
+    aruco_dict = cv2.aruco.getPredefinedDictionary(ARUCO_DICT)
+    params = cv2.aruco.DetectorParameters()
+    params.adaptiveThreshConstant = 7
+    params.adaptiveThreshWinSizeMin = 3
+    params.adaptiveThreshWinSizeMax = 53
+    params.adaptiveThreshWinSizeStep = 4
+    params.minMarkerPerimeterRate = 0.02
+    params.maxMarkerPerimeterRate = 4.0
+    params.polygonalApproxAccuracyRate = 0.05
+    params.errorCorrectionRate = 0.6
+    return cv2.aruco.ArucoDetector(aruco_dict, params)
+
+
 def main():
     mtx, dist = load_calibration()
 
-    aruco_dict = cv2.aruco.getPredefinedDictionary(ARUCO_DICT)
-    params = cv2.aruco.DetectorParameters()
-    detector = cv2.aruco.ArucoDetector(aruco_dict, params)
+    detector = make_detector()
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Erro: nao foi possivel abrir a camara.")
         sys.exit(1)
 
-    print("A detetar marcadores ArUco. Prima q para sair.")
+    print("A detetar marcadores ArUco. Prima q para sair, d para debug.")
+
+    debug = False
 
     while True:
         ret, frame = cap.read()
@@ -48,31 +63,44 @@ def main():
             break
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        corners, ids, _ = detector.detectMarkers(gray)
+        corners, ids, rejected = detector.detectMarkers(gray)
+
+        if debug:
+            thresh = cv2.adaptiveThreshold(gray, 255,
+                cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 21, 7)
+            debug_frame = cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)
+            cv2.putText(debug_frame, f"Rejeitados: {len(rejected)}", (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 100, 255), 2)
+            show = debug_frame
+        else:
+            show = frame
 
         if ids is not None:
-            cv2.aruco.drawDetectedMarkers(frame, corners, ids)
+            cv2.aruco.drawDetectedMarkers(show, corners, ids)
 
             rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
                 corners, MARKER_SIZE, mtx, dist
             )
 
             for i, (rvec, tvec) in enumerate(zip(rvecs, tvecs)):
-                cv2.drawFrameAxes(frame, mtx, dist, rvec, tvec, MARKER_SIZE * 0.5)
+                cv2.drawFrameAxes(show, mtx, dist, rvec, tvec, MARKER_SIZE * 0.5)
 
-                dist_m = np.linalg.norm(tvec)
+                d = np.linalg.norm(tvec)
                 corner = corners[i][0][0].astype(int)
-                cv2.putText(frame, f"ID:{ids[i][0]}  {dist_m:.1f}cm",
+                cv2.putText(show, f"ID:{ids[i][0]}  {d:.1f}cm",
                             (corner[0], corner[1] - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
         n = len(ids) if ids is not None else 0
-        cv2.putText(frame, f"Marcadores: {n}", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+        cv2.putText(show, f"Marcadores: {n}  {'[DEBUG]' if debug else ''}",
+                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
 
-        cv2.imshow("ArUco Detector", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        cv2.imshow("ArUco Detector", show)
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
             break
+        elif key == ord('d'):
+            debug = not debug
 
     cap.release()
     cv2.destroyAllWindows()

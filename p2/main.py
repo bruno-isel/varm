@@ -20,7 +20,7 @@ import numpy as np
 import cv2
 
 CALIBRATION_FILE = "camera_calibration.npz"
-MARKER_SIZE = 5.0         # cm — measure your printed marker side
+MARKER_SIZE = 6.0         # cm — measure your printed marker side
 ARUCO_DICT = cv2.aruco.DICT_6X6_250
 
 
