@@ -1,3 +1,14 @@
+---
+titulo: "Face Detection, Recognition e Augmented Reality"
+disciplina: "Computer Vision and Mixed Reality"
+docente: "Pedro Mendes Jorge"
+grau: "Mestrado em Engenharia Informática e Multimédia"
+autores:
+  - nome: "Bruno Rodrigues"
+    numero: "52323"
+data: "Junho 2026"
+---
+
 # VARM — 1º Projeto: Face Detection, Recognition e Augmented Reality
 
 Aplicação de reconhecimento facial com augmented reality em tempo real, desenvolvida para a cadeira de Computer Vision and Mixed Reality (VARM), ISEL.

@@ -1,6 +1,25 @@
+---
+titulo: "Marker Based Augmented Reality"
+disciplina: "Computer Vision and Mixed Reality"
+docente: "Pedro Mendes Jorge"
+grau: "Mestrado em Engenharia Informática e Multimédia"
+autores:
+  - nome: "Bruno Rodrigues"
+    numero: "52323"
+data: "Junho 2026"
+---
+
 # VARM — P2: Marker Based Augmented Reality
 
-Aplicação de AR baseada em marcadores ArUco com OpenCV/Python.
+## Introdução
+
+O presente relatório descreve o desenvolvimento do segundo projeto da unidade curricular de Computer Vision and Mixed Reality (VARM), do Mestrado em Engenharia Informática e Multimédia do ISEL.
+
+O objetivo do projeto é a implementação de uma aplicação de Realidade Aumentada (AR) baseada em marcadores fiduciais ArUco, utilizando a biblioteca OpenCV em Python. A aplicação permite detetar marcadores impressos em tempo real através de uma webcam e sobrepor objetos virtuais tridimensionais alinhados com cada marcador, criando a ilusão de que os objetos existem no espaço físico.
+
+O projeto divide-se em três componentes principais. A primeira é a calibração da câmara, processo que determina os parâmetros intrínsecos da câmara (matriz K e coeficientes de distorção) a partir de imagens de um tabuleiro de xadrez, transformando a câmara num instrumento de medição capaz de relacionar distâncias reais com píxeis. A segunda componente é a deteção de marcadores ArUco e a estimação de pose, que permite determinar a posição e orientação de cada marcador no espaço tridimensional relativamente à câmara. A terceira é o registo de objetos virtuais, onde se projeta geometria 3D (cubo e pirâmide) sobre a imagem da câmara de forma a ficar alinhada com o marcador correspondente.
+
+A integração com o motor de jogo Unity3D, prevista como componente opcional no enunciado, não foi realizada no âmbito deste projeto.
 
 ![AR em funcionamento — cubo (ID 0) e pirâmide (ID 1)](prints/image.png)
 
@@ -70,11 +89,15 @@ O código está completo mas é necessário preparar o material físico antes de
 
 ### B. Gerar e imprimir os marcadores ArUco
 
-- Aceder a https://chev.me/arucogen/
-- Selecionar dicionário **6x6 (250)** e gerar pelo menos os IDs **0** e **1**
+```bash
+python generate_markers.py
+```
+
+Gera `markers/marker_0.png` e `markers/marker_1.png` (dicionário 6×6\_250).
+
 - Tamanho sugerido: 5–8 cm de lado
 - Após imprimir, medir o lado real e atualizar `MARKER_SIZE` em `aruco_detector.py` e `main.py`
-  - Default: `0.05` (5 cm) — ajustar conforme a impressão
+  - Default: `6.0` (6 cm) — ajustar conforme a impressão
 
 ### C. Tirar as fotos de calibração
 
@@ -96,13 +119,14 @@ calibrate.py
 
 main.py (cada frame):
   webcam → gray
-         → detectMarkers()                                              → corners, ids
-         → estimatePoseSingleMarkers(corners, MARKER_SIZE, mtx, dist)  → rvec, tvec
-         → projectPoints(vertices_3D, rvec, tvec, mtx, dist)           → pixels_2D
-         → cv2.line() por cada aresta                                   → objeto na imagem
+         → detectMarkers()                                        → corners, ids
+         → solvePnPRansac(MARKER_OBJ_PTS, corners_2D, mtx, dist) → rvec, tvec
+         → Rodrigues(rvec)                                        → R (matriz 3×3)
+         → projectPoints(vertices_3D, rvec, tvec, mtx, dist)      → pixels_2D
+         → cv2.line() por cada aresta                              → objeto na imagem
 ```
 
-A chave conceptual é: **a calibração transforma a câmara num instrumento de medição**. Sem ela, o `estimatePoseSingleMarkers` não consegue calcular distâncias reais nem orientações corretas, e os objetos não ficam alinhados com o marcador.
+A chave conceptual é: **a calibração transforma a câmara num instrumento de medição**. Sem ela, o `solvePnPRansac` não consegue calcular distâncias reais nem orientações corretas, e os objetos não ficam alinhados com o marcador.
 
 ---
 
@@ -150,17 +174,26 @@ Os objetos são definidos como vértices no **espaço do marcador** (Z=0 = plano
 # Pirâmide: 4 vértices base + 1 ápice em (0, 0, h)
 ```
 
+**Estimação de pose por marcador** — em vez de `estimatePoseSingleMarkers`, usa-se explicitamente `solvePnPRansac` + `Rodrigues`:
+
+```python
+ok, rvec, tvec, _ = cv2.solvePnPRansac(MARKER_OBJ_PTS, corner[0], mtx, dist)
+R, _ = cv2.Rodrigues(rvec)   # vetor de rotação → matriz 3×3
+```
+
+`MARKER_OBJ_PTS` são os 4 cantos do marcador em 3D (espaço do marcador, cm). O RANSAC torna a estimação robusta a cantos mal detetados.
+
 **`draw_object()`** — usa `projectPoints` para transformar os vértices 3D em píxeis 2D:
 
 ```python
 projected, _ = cv2.projectPoints(vertices, rvec, tvec, mtx, dist)
 ```
 
-Isto aplica a transformação completa: espaço do marcador → espaço da câmara (via `rvec`/`tvec`) → plano da imagem (via `mtx`) → correção de distorção (via `dist`). Depois liga os vértices com `cv2.line`.
+Transformação completa: espaço do marcador → espaço da câmara (via `rvec`/`tvec`) → plano da imagem (via `mtx`) → correção de distorção (via `dist`). Depois liga os vértices com `cv2.line`.
 
-O objeto "segue" o marcador porque `rvec`/`tvec` são recalculados a cada frame — se moves a câmara ou o marcador, a projeção atualiza automaticamente.
+O objeto "segue" o marcador porque `rvec`/`tvec` são recalculados a cada frame.
 
-**`OBJECTS` dict** — mapeia ID → função construtora do objeto. Para adicionar um novo objeto basta criar a função e registá-la:
+**`OBJECTS` dict** — mapeia ID → função construtora do objeto:
 
 ```python
 OBJECTS = {0: _cube_edges, 1: _pyramid_edges, 2: _nova_funcao}
@@ -173,10 +206,14 @@ OBJECTS = {0: _cube_edges, 1: _pyramid_edges, 2: _nova_funcao}
 ```
 p2/
 ├── calibrate.py            # calibração da câmara com chessboard
-├── aruco_detector.py       # deteção ArUco + estimação de pose
-├── main.py                 # aplicação AR principal
+├── aruco_detector.py       # deteção ArUco + estimação de pose standalone
+├── main.py                 # aplicação AR principal (solvePnPRansac + Rodrigues)
+├── generate_markers.py     # gera imagens dos marcadores ArUco
+├── markers/                # imagens geradas (marker_0.png, marker_1.png)
+├── prints/                 # screenshots do resultado
 ├── camera_calibration.npz  # gerado após calibrar (não commitar)
-└── README.md
+├── README.md               # este ficheiro
+└── CODIGO.md               # explicação detalhada do código
 ```
 
 ---
@@ -205,3 +242,15 @@ Tentar vários ângulos com o papel solto faz com que o papel curve ligeiramente
 Colar o papel numa superfície dura (pasta, cartão espesso) garante que os cantos ficam rigorosamente no mesmo plano. Com 67 frames capturadas em ângulos, distâncias e inclinações variados, obtivemos RMS = 2.41 px — o melhor resultado da sessão.
 
 **Conclusão:** a rigidez do suporte é tão importante quanto a variedade de ângulos. Um tabuleiro que curve mesmo ligeiramente degrada significativamente a calibração.
+
+---
+
+## Conclusão
+
+O projeto foi concluído com sucesso, cumprindo todos os requisitos obrigatórios definidos no enunciado. A aplicação é capaz de detetar marcadores ArUco em tempo real, estimar a sua pose com `solvePnPRansac` e `Rodrigues`, e sobrepor objetos 3D wireframe (cubo para o ID 0, pirâmide para o ID 1) alinhados com cada marcador.
+
+O principal desafio encontrado foi a calibração da câmara. Verificou-se que a qualidade da calibração depende fortemente da rigidez do suporte do tabuleiro de xadrez — um tabuleiro impresso em papel solto introduz curvatura no plano de referência, degradando significativamente o erro de reprojeção (RMS superior a 9 px em testes com papel solto, contra 2.41 px com tabuleiro colado em superfície rígida). A variedade de ângulos e distâncias de captura revelou-se igualmente crítica para uma boa cobertura dos parâmetros de distorção radial.
+
+Um segundo problema identificado foi a necessidade de margem branca em redor dos marcadores impressos: sem essa margem, o algoritmo de deteção ArUco não encontra a transição preto→branco necessária para identificar os quadrados do marcador, falhando silenciosamente.
+
+Em termos de aprendizagens, o projeto permitiu compreender na prática o pipeline completo de AR baseada em marcadores: desde a calibração que estabelece a relação entre o mundo real e a imagem, passando pela estimação de pose que posiciona o referencial do marcador no espaço 3D, até à projeção de vértices que fecha o ciclo ao mapear os objetos virtuais de volta para píxeis na imagem.
