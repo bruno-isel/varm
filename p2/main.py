@@ -23,6 +23,16 @@ CALIBRATION_FILE = "camera_calibration.npz"
 MARKER_SIZE = 6.0         # cm — measure your printed marker side
 ARUCO_DICT = cv2.aruco.DICT_6X6_250
 
+# 4 corners of the marker in 3D (marker coord space, cm)
+# order matches detectMarkers output: top-left, top-right, bottom-right, bottom-left
+_h = MARKER_SIZE / 2.0
+MARKER_OBJ_PTS = np.array([
+    [-_h,  _h, 0],
+    [ _h,  _h, 0],
+    [ _h, -_h, 0],
+    [-_h, -_h, 0],
+], dtype=np.float32)
+
 
 def load_calibration():
     try:
@@ -121,18 +131,24 @@ def main():
         if ids is not None:
             cv2.aruco.drawDetectedMarkers(frame, corners, ids)
 
-            rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
-                corners, MARKER_SIZE, mtx, dist
-            )
+            for i, corner in enumerate(corners):
+                ok, rvec, tvec, _ = cv2.solvePnPRansac(
+                    MARKER_OBJ_PTS, corner[0], mtx, dist
+                )
+                if not ok:
+                    continue
 
-            for i, (rvec, tvec) in enumerate(zip(rvecs, tvecs)):
+                # rotation vector → 3×3 rotation matrix
+                R, _ = cv2.Rodrigues(rvec)
+                angle = np.degrees(np.arccos(np.clip((np.trace(R) - 1) / 2, -1.0, 1.0)))
+
                 marker_id = int(ids[i][0])
                 draw_object(frame, marker_id, rvec, tvec, mtx, dist)
 
-                dist_m = np.linalg.norm(tvec)
-                corner = corners[i][0][0].astype(int)
-                cv2.putText(frame, f"ID:{marker_id}  {dist_m:.1f}cm",
-                            (corner[0], corner[1] - 10),
+                dist_cm = np.linalg.norm(tvec)
+                pt = corner[0][0].astype(int)
+                cv2.putText(frame, f"ID:{marker_id}  {dist_cm:.1f}cm  {angle:.0f}deg",
+                            (pt[0], pt[1] - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
 
         cv2.imshow("Marker AR", frame)

@@ -2,6 +2,8 @@
 
 Aplicação de AR baseada em marcadores ArUco com OpenCV/Python.
 
+![AR em funcionamento — cubo (ID 0) e pirâmide (ID 1)](prints/image.png)
+
 ## Dependências
 
 ```bash
